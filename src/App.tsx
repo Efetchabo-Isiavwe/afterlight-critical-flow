@@ -262,39 +262,52 @@ const SPEAK_PITCH = 0.96;
 // Authentic Nigerian English pronunciation, natural rhythm, professional tone,
 // restrained delivery, zero caricature.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Global voice direction: Natural Nigerian English (en-NG).
+// Prohibited: generic African accents, American/British RP, exaggerated
+// accents, comedy voices, stereotypical ethnic speech, forced Pidgin.
+// ---------------------------------------------------------------------------
 const CHARACTER_VOICE_PROFILES = {
     OVIE: {
         gender: 'male',
-        ageRange: '30–40',
-        role: 'Field Infrastructure Technician',
-        tone: 'calm, practical, technically confident, controlled urgency',
+        ageRange: 'early 40s',
+        ethnicity: 'Urhobo',
+        origin: 'Delta State, Nigeria',
+        role: 'Senior Field Infrastructure Technician',
+        tone: 'calm, practical, technically excellent, controlled urgency',
         locale: 'en-NG',
         pitch: 0.94,
         rate: 1.0,
     },
     MAMA_KEMI: {
         gender: 'female',
-        ageRange: '55–65',
-        role: 'Community Elder / Market Leader',
-        tone: 'warm, authoritative, measured, no-nonsense',
+        ageRange: 'late 60s',
+        ethnicity: 'Yoruba',
+        origin: 'Lagos State, Nigeria',
+        role: 'Retired Senior Director, Federal Ministry of Power',
+        tone: 'warm, authoritative, formidable',
         locale: 'en-NG',
         pitch: 1.0,
         rate: 0.96,
     },
     DR_ESE: {
         gender: 'female',
-        ageRange: '35–45',
-        role: 'Chief Medical Officer, Asivaro Central Teaching Hospital',
-        tone: 'precise, composed, quietly urgent',
+        ageRange: '30s',
+        ethnicity: 'Urhobo',
+        origin: 'Delta State, Nigeria',
+        role: 'Hospital Director, Asivaro Central Teaching Hospital',
+        tone: 'intelligent, composed, compassionate, decisive',
         locale: 'en-NG',
         pitch: 1.02,
         rate: 1.0,
     },
-    BAYO: {
+    CHINEDU: {
         gender: 'male',
-        ageRange: '25–35',
-        role: 'Grid Systems Analyst',
-        tone: 'eager, slightly anxious, technically sharp',
+        ageRange: '30s',
+        ethnicity: 'Igbo',
+        origin: 'Eastern Nigeria',
+        role: 'Telecommunications Engineer',
+        tone: 'analytical, technically sharp, confident, fast-thinking, calm',
         locale: 'en-NG',
         pitch: 1.05,
         rate: 1.06,
@@ -302,8 +315,10 @@ const CHARACTER_VOICE_PROFILES = {
     THE_MAYOR: {
         gender: 'male',
         ageRange: '50–60',
-        role: 'Mayor of Asivaro City',
-        tone: 'gravitas, political weight, measured pauses',
+        ethnicity: 'Northern Nigerian',
+        origin: 'Northern Nigeria',
+        role: 'Experienced Public-Sector Leader',
+        tone: 'strategic, composed, articulate, measured',
         locale: 'en-NG',
         pitch: 0.88,
         rate: 0.94,
@@ -1007,7 +1022,7 @@ function App() {
                                 <OvieAvatar speaking={speechActive} />
                                 <div className="radio-text">
                                     <div className="speaker">
-                                        OVIE <span className="role">— Field Infrastructure Technician, East Ring</span>
+                                        OVIE <span className="role">— Senior Field Infrastructure Technician, East Ring</span>
                                     </div>
                                     <p className="dialogue">
                                         “{OVIE_LINE.slice(0, typedLen)}
