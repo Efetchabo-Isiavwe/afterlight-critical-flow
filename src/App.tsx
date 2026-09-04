@@ -189,7 +189,7 @@ class AudioEngine {
         src.start();
     }
 
-    play(type: 'alarm' | 'click' | 'radio' | 'decision' | 'power' | 'advance' | 'boot' | 'anomaly') {
+    play(type: 'alarm' | 'click' | 'radio' | 'decision' | 'power' | 'advance' | 'boot' | 'anomaly' | 'carrier') {
         switch (type) {
             case 'alarm':
                 this.tone(660, 0.16, 'square', 0.07);
@@ -225,6 +225,10 @@ class AudioEngine {
             case 'boot':
                 this.tone(220, 0.3, 'sine', 0.06, 440);
                 break;
+            case 'carrier':
+                // Sustained light radio carrier bed — subtle static under speech.
+                this.radioStatic(3.5, 0.025, 1400);
+                break;
         }
     }
 }
@@ -252,7 +256,65 @@ interface SpeakOptions {
 const SPEAK_RATE = 1.04;
 const SPEAK_PITCH = 0.96;
 
-/** Pick a natural professional English voice, preferring male field-voice names. */
+// ---------------------------------------------------------------------------
+// CHARACTER_VOICE_PROFILES — Nigerian voice direction casting spec.
+// Setting: Asivaro City (fictional contemporary African metropolis).
+// Authentic Nigerian English pronunciation, natural rhythm, professional tone,
+// restrained delivery, zero caricature.
+// ---------------------------------------------------------------------------
+const CHARACTER_VOICE_PROFILES = {
+    OVIE: {
+        gender: 'male',
+        ageRange: '30–40',
+        role: 'Field Infrastructure Technician',
+        tone: 'calm, practical, technically confident, controlled urgency',
+        locale: 'en-NG',
+        pitch: 0.94,
+        rate: 1.0,
+    },
+    MAMA_KEMI: {
+        gender: 'female',
+        ageRange: '55–65',
+        role: 'Community Elder / Market Leader',
+        tone: 'warm, authoritative, measured, no-nonsense',
+        locale: 'en-NG',
+        pitch: 1.0,
+        rate: 0.96,
+    },
+    DR_ESE: {
+        gender: 'female',
+        ageRange: '35–45',
+        role: 'Chief Medical Officer, Asivaro Central Teaching Hospital',
+        tone: 'precise, composed, quietly urgent',
+        locale: 'en-NG',
+        pitch: 1.02,
+        rate: 1.0,
+    },
+    BAYO: {
+        gender: 'male',
+        ageRange: '25–35',
+        role: 'Grid Systems Analyst',
+        tone: 'eager, slightly anxious, technically sharp',
+        locale: 'en-NG',
+        pitch: 1.05,
+        rate: 1.06,
+    },
+    THE_MAYOR: {
+        gender: 'male',
+        ageRange: '50–60',
+        role: 'Mayor of Asivaro City',
+        tone: 'gravitas, political weight, measured pauses',
+        locale: 'en-NG',
+        pitch: 0.88,
+        rate: 0.94,
+    },
+} as const;
+
+/**
+ * Pick a natural professional Nigerian English voice for Ovie.
+ * Priority: en-NG → West African (en-GH) → African English (en-ZA, en-KE)
+ * → clean international English (en-GB, en-US) with male/natural hints.
+ */
 function pickOvieVoice(): SpeechSynthesisVoice | null {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
     const voices = window.speechSynthesis.getVoices();
@@ -261,12 +323,19 @@ function pickOvieVoice(): SpeechSynthesisVoice | null {
     const pool = english.length > 0 ? english : voices;
     const maleHints = /(male|daniel|alex|fred|george|james|oliver|thomas|aaron|arthur|roger|david|mark|paul)/i;
     const naturalHints = /(natural|neural|premium|enhanced|google)/i;
+    const nigerianHints = /(nigerian|nigeria|en.ng|en_ng)/i;
     const score = (v: SpeechSynthesisVoice) => {
         let s = 0;
+        // Nigerian English locale is top priority
+        if (/^en[-_]NG/i.test(v.lang)) s += 10;
+        else if (/^en[-_]GH/i.test(v.lang)) s += 7;
+        else if (/^en[-_](ZA|KE|TZ)/i.test(v.lang)) s += 5;
+        else if (/^en-GB/i.test(v.lang)) s += 2;
+        else if (/^en-US/i.test(v.lang)) s += 1;
+        // Name-based Nigerian hints
+        if (nigerianHints.test(v.name)) s += 8;
         if (maleHints.test(v.name)) s += 3;
         if (naturalHints.test(v.name)) s += 2;
-        if (/^en-US/i.test(v.lang)) s += 1;
-        else if (/^en-GB/i.test(v.lang)) s += 1;
         if (v.default) s += 0.5;
         return s;
     };
@@ -321,10 +390,10 @@ function speakOvie(opts: SpeakOptions): () => void {
     }
 
     const u = new SpeechSynthesisUtterance(text);
-    u.rate = SPEAK_RATE;
-    u.pitch = SPEAK_PITCH;
+    u.rate = CHARACTER_VOICE_PROFILES.OVIE.rate;
+    u.pitch = CHARACTER_VOICE_PROFILES.OVIE.pitch;
     u.volume = muted ? 0 : 1;
-    u.lang = 'en-US';
+    u.lang = 'en-NG';
     const voice = pickOvieVoice();
     if (voice) u.voice = voice;
 
@@ -601,6 +670,8 @@ function App() {
         // Abort any previous utterance before (re)starting the transmission.
         if (cancelSpeechRef.current) cancelSpeechRef.current();
         audioEngine.play('radio');
+        // Light radio carrier + static bed under the field comms transmission.
+        audioEngine.play('carrier');
         setTypedLen(0);
         setSpeechActive(true);
         const startedAt = Date.now();
