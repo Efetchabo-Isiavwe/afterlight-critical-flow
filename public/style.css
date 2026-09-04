@@ -1,5 +1,5 @@
 /* ==========================================================================
-   AFTERLIGHT — Nalé City Emergency Operations Command styling.
+   AFTERLIGHT — Asivaro City Emergency Operations Command styling.
    Deep obsidian slate, amber/cyan/crimson tactical palette, glassmorphism.
    ========================================================================== */
 
@@ -994,5 +994,213 @@ body {
     .btn,
     .card {
         min-height: 60px;
+    }
+}
+
+/* ==========================================================================
+   ANOMALY — intercepted emergency transmission (psychological-thriller beat).
+   Glitching terminal frame: scanlines, chromatic aberration, static noise.
+   ========================================================================== */
+.screen.anomaly-screen {
+    padding-left: 300px;
+}
+
+.anomaly-box {
+    pointer-events: auto;
+    position: relative;
+    width: min(620px, 92%);
+    padding: 26px 28px 22px;
+    border-radius: 14px;
+    border: 1px solid rgba(239, 68, 68, 0.55);
+    background: rgba(4, 7, 14, 0.92);
+    box-shadow: 0 0 60px rgba(239, 68, 68, 0.18), inset 0 0 40px rgba(0, 0, 0, 0.6);
+    font-family: "SFMono-Regular", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: var(--text);
+    overflow: hidden;
+    animation: anomaly-flicker 2.4s steps(24, end) infinite;
+}
+
+/* horizontal scanline sweep */
+.anomaly-scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.03) 0px,
+        rgba(255, 255, 255, 0.03) 1px,
+        transparent 2px,
+        transparent 4px
+    );
+    mix-blend-mode: overlay;
+}
+
+.anomaly-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--crimson);
+    margin-bottom: 14px;
+}
+
+.anomaly-led {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--crimson);
+    box-shadow: 0 0 10px var(--crimson);
+    animation: anomaly-blink 0.7s steps(2, end) infinite;
+}
+
+.anomaly-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 6px;
+}
+
+.anomaly-unknown {
+    color: var(--amber);
+    animation: anomaly-jitter 0.35s steps(3, end) infinite;
+}
+
+.anomaly-unverified {
+    color: var(--crimson);
+}
+
+.anomaly-rule {
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(239, 68, 68, 0.6), transparent);
+    margin: 12px 0 16px;
+}
+
+/* chromatic-aberration glitch headline */
+.anomaly-quote {
+    position: relative;
+    margin: 0 0 16px;
+    font-size: clamp(18px, 2.4vw, 26px);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    text-shadow: 0 0 12px rgba(6, 182, 212, 0.25);
+    animation: anomaly-glitch 1.8s steps(12, end) infinite;
+}
+
+.anomaly-quote::before,
+.anomaly-quote::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.anomaly-quote::before {
+    color: var(--crimson);
+    transform: translate(-2px, 1px);
+    clip-path: inset(0 0 55% 0);
+    opacity: 0.75;
+    animation: anomaly-shift 1.4s steps(8, end) infinite;
+}
+
+.anomaly-quote::after {
+    color: var(--cyan);
+    transform: translate(2px, -1px);
+    clip-path: inset(55% 0 0 0);
+    opacity: 0.75;
+    animation: anomaly-shift 1.1s steps(7, end) infinite reverse;
+}
+
+.anomaly-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+}
+
+.anomaly-noise {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 14px;
+}
+
+.anomaly-noise i {
+    width: 3px;
+    height: 100%;
+    background: var(--crimson);
+    opacity: 0.7;
+    animation: anomaly-bar 0.5s ease-in-out infinite alternate;
+}
+
+.anomaly-noise i:nth-child(2) { animation-delay: 0.1s; }
+.anomaly-noise i:nth-child(3) { animation-delay: 0.2s; }
+.anomaly-noise i:nth-child(4) { animation-delay: 0.05s; }
+.anomaly-noise i:nth-child(5) { animation-delay: 0.15s; }
+
+.anomaly-hold {
+    color: var(--amber);
+    animation: anomaly-jitter 0.5s steps(2, end) infinite;
+}
+
+@keyframes anomaly-flicker {
+    0%, 92%, 100% { opacity: 1; }
+    93% { opacity: 0.82; }
+    95% { opacity: 0.96; }
+    97% { opacity: 0.78; }
+}
+
+@keyframes anomaly-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0.15; }
+}
+
+@keyframes anomaly-glitch {
+    0%, 100% { transform: translate(0, 0); }
+    20% { transform: translate(-1px, 1px); }
+    40% { transform: translate(1px, -1px); }
+    60% { transform: translate(-1px, 0); }
+    80% { transform: translate(1px, 1px); }
+}
+
+@keyframes anomaly-shift {
+    0%, 100% { transform: translate(-2px, 1px); }
+    50% { transform: translate(2px, -1px); }
+}
+
+@keyframes anomaly-jitter {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(1px, 0); }
+    50% { transform: translate(-1px, 0); }
+    75% { transform: translate(0, 1px); }
+}
+
+@keyframes anomaly-bar {
+    from { transform: scaleY(0.25); }
+    to { transform: scaleY(1); }
+}
+
+@media (max-width: 900px) {
+    .screen.anomaly-screen {
+        padding-left: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .anomaly-box,
+    .anomaly-quote,
+    .anomaly-quote::before,
+    .anomaly-quote::after,
+    .anomaly-led,
+    .anomaly-unknown,
+    .anomaly-hold,
+    .anomaly-noise i {
+        animation: none;
     }
 }

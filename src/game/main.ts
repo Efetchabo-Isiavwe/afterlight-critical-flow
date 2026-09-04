@@ -1,7 +1,7 @@
 import { AUTO, Events, Game as PhaserGame, Scale, Scene } from 'phaser';
 
 // ---------------------------------------------------------------------------
-// AFTERLIGHT — Nalé City Emergency Operations ambient visualizer scene.
+// AFTERLIGHT — Asivaro City Emergency Operations ambient visualizer scene.
 // React (src/App.tsx) owns the crisis state machine; this Phaser canvas
 // renders the night city, the eastern-grid blackout and the live telemetry.
 // ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ export class Game extends Scene {
 
         // Initial telemetry alert after a short boot beat.
         this.time.delayedCall(1200, () => {
-            EventBus.emit(EVT_GRID_STATUS_ALERT, { status: 'NATIONAL GRID NOMINAL', sector: 'SECTOR 4 — NALÉ CITY' });
+            EventBus.emit(EVT_GRID_STATUS_ALERT, { status: 'NATIONAL GRID NOMINAL', sector: 'SECTOR 4 — ASIVARO CITY' });
         });
 
         EventBus.emit(EVT_CURRENT_SCENE_READY, this);
@@ -119,9 +119,18 @@ export class Game extends Scene {
     private onPhaseChanged(payload: { phase?: string }) {
         const phase = payload?.phase ?? '';
         this.currentPhase = phase;
-        const crisisPhase = phase === 'CRISIS_BRIEFING' || phase === 'OVIE_REPORT' || phase === 'DECISION_SCREEN';
+        const crisisPhase =
+            phase === 'CRISIS_BRIEFING' ||
+            phase === 'OVIE_REPORT' ||
+            phase === 'ANOMALY_TRANSMISSION' ||
+            phase === 'DECISION_SCREEN';
         if (crisisPhase && !this.blackout) {
             this.triggerBlackout();
+        }
+        // Psychological-thriller anomaly beat: the intercepted transmission
+        // briefly destabilizes the ops core on the map before the decision.
+        if (phase === 'ANOMALY_TRANSMISSION') {
+            this.setNodeStatus('CORE', 'unstable');
         }
         if (phase === 'DEBRIEF' || phase === 'TITLE') {
             this.setNodeStatus('E01', 'offline');
@@ -425,7 +434,7 @@ export class Game extends Scene {
             { id: 'E01', x: GAME_WIDTH * 0.58, y: GAME_HEIGHT * 0.22, label: 'EAST-01', status: 'online' },
             { id: 'E02', x: GAME_WIDTH * 0.74, y: GAME_HEIGHT * 0.42, label: 'EAST-02', status: 'online' },
             { id: 'MARINA', x: GAME_WIDTH * 0.88, y: GAME_HEIGHT * 0.60, label: 'MARINA JCT', status: 'online' },
-            { id: 'HOSPITAL', x: GAME_WIDTH * 0.40, y: GAME_HEIGHT * 0.52, label: 'NALÉ HOSPITAL', status: 'online' },
+            { id: 'HOSPITAL', x: GAME_WIDTH * 0.40, y: GAME_HEIGHT * 0.52, label: 'ASIVARO HOSPITAL', status: 'online' },
         ];
 
         defs.forEach((d) => {

@@ -24,6 +24,7 @@ type GamePhase =
     | 'OPERATIONS_INTRO'
     | 'CRISIS_BRIEFING'
     | 'OVIE_REPORT'
+    | 'ANOMALY_TRANSMISSION'
     | 'DECISION_SCREEN'
     | 'CONSEQUENCE_SCREEN'
     | 'DEBRIEF';
@@ -67,10 +68,10 @@ const CHOICES: Choice[] = [
         keyLabel: '2 / B',
         title: 'PROTECT HOSPITAL',
         rationale:
-            'Isolate and dedicate the emergency grid relay exclusively to Nalé Central Hospital and ICU life-support wards.',
+            'Isolate and dedicate the emergency grid relay exclusively to Asivaro Central Hospital and ICU life-support wards.',
         deltas: { lives: 8, power: -10, water: -3, trust: 5 },
         outcome:
-            'ICU ventilators hold steady through the night. Nalé Central Teaching Hospital logs zero transfer casualties. The wider eastern grid stays dark and water pressure drops across two districts, but public message boards carry one repeated word: "They kept the hospital alive."',
+            'ICU ventilators hold steady through the night. Asivaro Central Teaching Hospital logs zero transfer casualties. The wider eastern grid stays dark and water pressure drops across two districts, but public message boards carry one repeated word: "They kept the hospital alive."',
     },
     {
         id: 'C',
@@ -101,6 +102,7 @@ const PHASE_ORDER: GamePhase[] = [
     'OPERATIONS_INTRO',
     'CRISIS_BRIEFING',
     'OVIE_REPORT',
+    'ANOMALY_TRANSMISSION',
     'DECISION_SCREEN',
     'CONSEQUENCE_SCREEN',
     'DEBRIEF',
@@ -159,7 +161,35 @@ class AudioEngine {
         src.start();
     }
 
-    play(type: 'alarm' | 'click' | 'radio' | 'decision' | 'power' | 'advance' | 'boot') {
+    /**
+     * Band-passed radio static burst — the anomaly transmission cue.
+     * Subtle carrier hiss + two short squelch crackles, no jumpscare.
+     */
+    private radioStatic(dur: number, gain = 0.05, center = 1600) {
+        if (this.muted) return;
+        const ctx = this.ensure();
+        if (!ctx) return;
+        const len = Math.floor(ctx.sampleRate * dur);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) {
+            // gentle fade in/out envelope over raw noise
+            const env = Math.min(1, i / (len * 0.12)) * Math.min(1, (len - i) / (len * 0.25));
+            data[i] = (Math.random() * 2 - 1) * env;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = center;
+        bp.Q.value = 0.8;
+        const g = ctx.createGain();
+        g.gain.value = gain;
+        src.connect(bp).connect(g).connect(ctx.destination);
+        src.start();
+    }
+
+    play(type: 'alarm' | 'click' | 'radio' | 'decision' | 'power' | 'advance' | 'boot' | 'anomaly') {
         switch (type) {
             case 'alarm':
                 this.tone(660, 0.16, 'square', 0.07);
@@ -177,6 +207,13 @@ class AudioEngine {
                 this.tone(1200, 0.06, 'sine', 0.05);
                 window.setTimeout(() => this.noise(0.1, 0.035, 900), 120);
                 break;
+            case 'anomaly':
+                // Carrier hiss under two squelch crackles + a low detuned pulse.
+                this.radioStatic(0.9, 0.05, 1500);
+                window.setTimeout(() => this.radioStatic(0.25, 0.045, 2400), 260);
+                window.setTimeout(() => this.radioStatic(0.35, 0.04, 900), 700);
+                window.setTimeout(() => this.tone(90, 0.35, 'sine', 0.05, 60), 120);
+                break;
             case 'decision':
                 this.tone(300, 0.22, 'sawtooth', 0.06, 180);
                 this.noise(0.12, 0.04, 500);
@@ -193,6 +230,138 @@ class AudioEngine {
 }
 
 const audioEngine = new AudioEngine();
+
+// ---------------------------------------------------------------------------
+// Speech Synthesis helper — OVIE's vocal dialogue (Web Speech API).
+// Calm, professional field-technician tone. All callers degrade gracefully
+// when speechSynthesis is unavailable/blocked (typewriter fallback still
+// completes so the player can always advance).
+// ---------------------------------------------------------------------------
+
+interface SpeakOptions {
+    text: string;
+    muted: boolean;
+    /** Called with the character index reached so far (word-boundary sync). */
+    onProgress: (charIndex: number) => void;
+    /** Called once when speech starts (or immediately when unavailable). */
+    onStart: () => void;
+    /** Called once when speech ends, errors, or is cancelled. */
+    onEnd: () => void;
+}
+
+const SPEAK_RATE = 1.04;
+const SPEAK_PITCH = 0.96;
+
+/** Pick a natural professional English voice, preferring male field-voice names. */
+function pickOvieVoice(): SpeechSynthesisVoice | null {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return null;
+    const english = voices.filter((v) => /^en([-_]|$)/i.test(v.lang || ''));
+    const pool = english.length > 0 ? english : voices;
+    const maleHints = /(male|daniel|alex|fred|george|james|oliver|thomas|aaron|arthur|roger|david|mark|paul)/i;
+    const naturalHints = /(natural|neural|premium|enhanced|google)/i;
+    const score = (v: SpeechSynthesisVoice) => {
+        let s = 0;
+        if (maleHints.test(v.name)) s += 3;
+        if (naturalHints.test(v.name)) s += 2;
+        if (/^en-US/i.test(v.lang)) s += 1;
+        else if (/^en-GB/i.test(v.lang)) s += 1;
+        if (v.default) s += 0.5;
+        return s;
+    };
+    return [...pool].sort((a, b) => score(b) - score(a))[0] ?? null;
+}
+
+/**
+ * Speak `text` aloud. Returns a cancel() handle that safely aborts the
+ * utterance (idempotent). If speechSynthesis is unavailable or blocked,
+ * onStart/onEnd fire on a short timer so subtitle + advance flow never stall.
+ */
+function speakOvie(opts: SpeakOptions): () => void {
+    const { text, muted, onProgress, onStart, onEnd } = opts;
+    let done = false;
+    let cancelled = false;
+    let fallbackTimer = 0;
+
+    const finish = () => {
+        if (done) return;
+        done = true;
+        window.clearTimeout(fallbackTimer);
+        onEnd();
+    };
+
+    const supported =
+        typeof window !== 'undefined' &&
+        'speechSynthesis' in window &&
+        typeof window.SpeechSynthesisUtterance !== 'undefined';
+
+    if (!supported) {
+        // Degrade: let the typewriter run on its own timer; report start/end.
+        onStart();
+        const est = Math.max(2500, (text.length / 14) * 1000);
+        fallbackTimer = window.setTimeout(finish, est);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(fallbackTimer);
+        };
+    }
+
+    const synth = window.speechSynthesis;
+    // Some browsers populate voices asynchronously; nudge them awake.
+    if (synth.getVoices().length === 0) {
+        // getVoices() may still be empty on first call — the utterance will
+        // simply use the default voice. No action needed beyond reading it.
+    }
+
+    try {
+        synth.cancel();
+    } catch {
+        /* ignore */
+    }
+
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = SPEAK_RATE;
+    u.pitch = SPEAK_PITCH;
+    u.volume = muted ? 0 : 1;
+    u.lang = 'en-US';
+    const voice = pickOvieVoice();
+    if (voice) u.voice = voice;
+
+    u.onstart = () => {
+        if (!cancelled) onStart();
+    };
+    u.onboundary = (e: SpeechSynthesisEvent) => {
+        if (cancelled) return;
+        if (typeof e.charIndex === 'number') onProgress(e.charIndex);
+    };
+    u.onend = finish;
+    u.onerror = finish;
+
+    try {
+        synth.speak(u);
+    } catch {
+        onStart();
+        finish();
+    }
+
+    // Safety net: if onstart never fires (blocked autoplay), start the flow
+    // and guarantee completion so the player can always advance.
+    fallbackTimer = window.setTimeout(() => {
+        if (!cancelled) onStart();
+        finish();
+    }, Math.max(4000, (text.length / 12) * 1000));
+
+    return () => {
+        cancelled = true;
+        try {
+            synth.cancel();
+        } catch {
+            /* ignore */
+        }
+        window.clearTimeout(fallbackTimer);
+    };
+}
 
 // ---------------------------------------------------------------------------
 // Inline SVG icons (no icon libraries in this project).
@@ -368,8 +537,11 @@ function App() {
     const [booted, setBooted] = useState(false);
     const [bootError, setBootError] = useState(false);
     const [typedLen, setTypedLen] = useState(0);
+    const [speechActive, setSpeechActive] = useState(false);
     const logRef = useRef<string[]>([]);
     const [log, setLog] = useState<string[]>([]);
+    // Handle to abort the current OVIE voice utterance (speech synthesis).
+    const cancelSpeechRef = useRef<(() => void) | null>(null);
 
     // ---- Phaser mount (template bridge — never remove) -------------------
     useLayoutEffect(() => {
@@ -400,7 +572,7 @@ function App() {
         const onAlert = (payload: { status?: string; sector?: string }) => {
             if (payload?.status) setAlert(`${payload.sector ? payload.sector + ' · ' : ''}${payload.status}`);
         };
-        const onSfx = (payload: { type?: 'alarm' | 'click' | 'radio' | 'decision' | 'power' }) => {
+        const onSfx = (payload: { type?: 'alarm' | 'click' | 'radio' | 'decision' | 'power' | 'anomaly' }) => {
             if (payload?.type) audioEngine.play(payload.type);
         };
         EventBus.on(EVT_GRID_STATUS_ALERT, onAlert);
@@ -421,16 +593,19 @@ function App() {
         EventBus.emit(EVT_RESOURCE_UPDATED, res);
     }, [res]);
 
-    // ---- Typewriter for radio dialogue ------------------------------------
+    // ---- OVIE vocal report: radio squelch + speech synthesis + synced subtitles
     const OVIE_LINE =
         "Coordinator, we've lost the eastern grid. Three substations are offline. I can get one priority system back up, but not everything.";
-    useEffect(() => {
-        if (phase !== 'OVIE_REPORT') {
-            setTypedLen(0);
-            return;
-        }
+
+    const playOvieReport = useCallback(() => {
+        // Abort any previous utterance before (re)starting the transmission.
+        if (cancelSpeechRef.current) cancelSpeechRef.current();
         audioEngine.play('radio');
         setTypedLen(0);
+        setSpeechActive(true);
+        const startedAt = Date.now();
+        // Typewriter fallback: keeps subtitles streaming even when speech is
+        // blocked/unavailable; speech word-boundaries snap it forward when present.
         const id = window.setInterval(() => {
             setTypedLen((n) => {
                 if (n >= OVIE_LINE.length) {
@@ -440,8 +615,69 @@ function App() {
                 return n + 2;
             });
         }, 24);
+        cancelSpeechRef.current = speakOvie({
+            text: OVIE_LINE,
+            muted: audioEngine.muted,
+            onProgress: (charIndex) => {
+                // Boundary sync: only move the subtitle forward, never rewind.
+                setTypedLen((n) => Math.max(n, charIndex));
+            },
+            onStart: () => {
+                setSpeechActive(true);
+            },
+            onEnd: () => {
+                window.clearInterval(id);
+                // Guarantee the full line is shown when speech completes.
+                setTypedLen(OVIE_LINE.length);
+                setSpeechActive(false);
+                cancelSpeechRef.current = null;
+                void startedAt;
+            },
+        });
         return () => window.clearInterval(id);
-    }, [phase, OVIE_LINE.length]);
+    }, [OVIE_LINE]);
+
+    useEffect(() => {
+        if (phase !== 'OVIE_REPORT') {
+            if (cancelSpeechRef.current) {
+                cancelSpeechRef.current();
+                cancelSpeechRef.current = null;
+            }
+            setSpeechActive(false);
+            setTypedLen(0);
+            return;
+        }
+        const cleanup = playOvieReport();
+        return () => {
+            cleanup();
+            if (cancelSpeechRef.current) {
+                cancelSpeechRef.current();
+                cancelSpeechRef.current = null;
+            }
+        };
+    }, [phase, playOvieReport]);
+
+    // ---- ANOMALY: intercepted emergency transmission (auto 1.6 s beat) ----
+    // Fires between Ovie's field report and the decision console. Subtle
+    // radio-static cue + glitched terminal overlay, then cleans up on its own.
+    useEffect(() => {
+        if (phase !== 'ANOMALY_TRANSMISSION') return;
+        audioEngine.play('anomaly');
+        pushLog('00:02 — Anomalous carrier detected on encrypted band. Source unverified.');
+        const id = window.setTimeout(() => {
+            setPhase('DECISION_SCREEN');
+        }, 1600);
+        return () => window.clearTimeout(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [phase]);
+
+    // Cancel any in-flight speech on unmount.
+    useEffect(
+        () => () => {
+            if (cancelSpeechRef.current) cancelSpeechRef.current();
+        },
+        [],
+    );
 
     // ---- Navigation -------------------------------------------------------
     const pushLog = useCallback((line: string) => {
@@ -467,7 +703,7 @@ function App() {
         setLastChoice(null);
         logRef.current = ['00:00 — Operations shift begins. Sector 4 online.'];
         setLog(logRef.current);
-        setAlert('NALÉ CITY METROPOLITAN OPERATIONS CENTRE — ONLINE');
+        setAlert('ASIVARO CITY METROPOLITAN OPERATIONS CENTRE — ONLINE');
         setPhase('OPERATIONS_INTRO');
     }, []);
 
@@ -500,6 +736,13 @@ function App() {
     const toggleMute = useCallback(() => {
         setMuted((m) => {
             audioEngine.muted = !m;
+            // Muting stops any in-flight OVIE voice immediately; unmuting
+            // plays a confirmation click.
+            if (!m && cancelSpeechRef.current) {
+                cancelSpeechRef.current();
+                cancelSpeechRef.current = null;
+                setSpeechActive(false);
+            }
             if (m) audioEngine.play('click');
             return !m;
         });
@@ -517,11 +760,16 @@ function App() {
                 restart();
                 return;
             }
+            if (k === 'v' && phase === 'OVIE_REPORT') {
+                // Replay OVIE's vocal transmission (subtitles re-sync).
+                playOvieReport();
+                return;
+            }
             if (k === ' ' || k === 'enter') {
                 e.preventDefault();
                 if (phase === 'TITLE') startOp();
                 else if (phase === 'DEBRIEF') restart();
-                else if (phase !== 'DECISION_SCREEN') advance();
+                else if (phase !== 'DECISION_SCREEN' && phase !== 'ANOMALY_TRANSMISSION') advance();
                 return;
             }
             if (phase === 'DECISION_SCREEN') {
@@ -532,7 +780,7 @@ function App() {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [phase, advance, choose, startOp, restart, toggleMute]);
+    }, [phase, advance, choose, startOp, restart, toggleMute, playOvieReport]);
 
     // ---- Top bar (visible in all operational phases) -----------------------
     const showHud = phase !== 'TITLE';
@@ -561,7 +809,7 @@ function App() {
                         <div className="brand">
                             <span className="brand-mark">◆</span>
                             <span className="brand-name">AFTERLIGHT</span>
-                            <span className="brand-sub">NALÉ CITY · EOC SECTOR 4</span>
+                            <span className="brand-sub">ASIVARO CITY · EOC SECTOR 4</span>
                         </div>
                         <div className="alertline" role="status" aria-live="polite">
                             <span className="alert-dot" />
@@ -595,7 +843,7 @@ function App() {
                 {phase === 'TITLE' && (
                     <div className="screen center">
                         <div className="title-block">
-                            <div className="title-kicker">NALÉ CITY EMERGENCY OPERATIONS COMMAND — SECTOR 4</div>
+                            <div className="title-kicker">ASIVARO CITY EMERGENCY OPERATIONS COMMAND — SECTOR 4</div>
                             <h1 className="game-title">
                                 AFTER<span className="light">LIGHT</span>
                             </h1>
@@ -613,7 +861,7 @@ function App() {
                     <div className="screen right-aligned">
                         <div className="panel">
                             <div className="chip cyan">SYSTEM ONLINE</div>
-                            <h2>NALÉ CITY METROPOLITAN OPERATIONS CENTRE</h2>
+                            <h2>ASIVARO CITY METROPOLITAN OPERATIONS CENTRE</h2>
                             <p>
                                 Night shift, Sector 4. The city is awake: 2.4 million residents, a coastal grid, three
                                 hospitals on rotating load schedules. Five vital signs stream into this console all night.
@@ -648,7 +896,7 @@ function App() {
                                     <span className="x">✕</span> 3 substations offline — East-01, East-02, Marina Junction
                                 </li>
                                 <li>
-                                    <span className="warn">!</span> Nalé Central Teaching Hospital on auxiliary generators
+                                    <span className="warn">!</span> Asivaro Central Teaching Hospital on auxiliary generators
                                 </li>
                                 <li>
                                     <span className="warn">!</span> Municipal water booster pumps losing pressure
@@ -674,10 +922,18 @@ function App() {
                                 <IconRadio />
                                 <span>FIELD DISPATCH · CHANNEL 7</span>
                                 <span className="spacer" />
+                                <button
+                                    className="icon-btn"
+                                    onClick={() => playOvieReport()}
+                                    aria-label="Replay transmission"
+                                    title="Replay transmission (V)"
+                                >
+                                    <IconRestart />
+                                </button>
                                 <span className="chip amber">ENCRYPTED</span>
                             </div>
                             <div className="radio-body">
-                                <OvieAvatar speaking={typedLen < OVIE_LINE.length} />
+                                <OvieAvatar speaking={speechActive} />
                                 <div className="radio-text">
                                     <div className="speaker">
                                         OVIE <span className="role">— Field Infrastructure Technician, East Ring</span>
@@ -694,6 +950,37 @@ function App() {
                                         </div>
                                     )}
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ---------------- ANOMALY: INTERCEPTED TRANSMISSION ---------------- */}
+                {phase === 'ANOMALY_TRANSMISSION' && (
+                    <div className="screen center anomaly-screen">
+                        <div className="anomaly-box" role="alert" aria-live="assertive">
+                            <div className="anomaly-scanlines" aria-hidden />
+                            <div className="anomaly-head">
+                                <span className="anomaly-led" aria-hidden />
+                                <span>INCOMING EMERGENCY TRANSMISSION</span>
+                            </div>
+                            <div className="anomaly-meta">
+                                <div>
+                                    SOURCE: <span className="anomaly-unknown">UNKNOWN</span>
+                                </div>
+                                <div>
+                                    STATUS: <span className="anomaly-unverified">UNVERIFIED</span>
+                                </div>
+                            </div>
+                            <div className="anomaly-rule" aria-hidden />
+                            <p className="anomaly-quote" data-text="“DO NOT TRUST THE FIRST REPORT.”">
+                                “DO NOT TRUST THE FIRST REPORT.”
+                            </p>
+                            <div className="anomaly-foot">
+                                <span className="anomaly-noise" aria-hidden>
+                                    <i /><i /><i /><i /><i /><i /><i /><i />
+                                </span>
+                                <span className="anomaly-hold">CARRIER LOST — SIGNAL DECRYPT FAILED</span>
                             </div>
                         </div>
                     </div>
@@ -767,7 +1054,7 @@ function App() {
                                     </div>
                                 </div>
                                 <div>
-                                    <div className="panel-title">SITUATION REPORT — NALÉ CITY</div>
+                                    <div className="panel-title">SITUATION REPORT — ASIVARO CITY</div>
                                     <p className="outcome">{lastChoice.outcome}</p>
                                     <div className="totals">
                                         {RES_META.map((m) => (
@@ -796,7 +1083,7 @@ function App() {
                             <h2>SECTOR 4 DEBRIEF · 22:31 LOCAL</h2>
                             <p>
                                 The eastern ring stays dark while crews rebuild the relay chain. The console hums. Somewhere
-                                across Nalé City, another siren is already on its way to your desk.
+                                across Asivaro City, another siren is already on its way to your desk.
                             </p>
                             <div className="panel-title mt">SHIFT LOG</div>
                             <ul className="log tall">
